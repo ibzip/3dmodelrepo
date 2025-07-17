@@ -21,10 +21,21 @@
 </head>
 <body>
   <div id="loading">Loading model...</div>
+
+  <!-- Import map: tells browser where 'three' and addon paths live -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+    }
+  }
+  </script>
+
   <script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.165.0/build/three.module.js';
-    import { OrbitControls } from 'https://unpkg.com/three@0.165.0/examples/jsm/controls/OrbitControls.js';
-    import { GLTFLoader } from 'https://unpkg.com/three@0.165.0/examples/jsm/loaders/GLTFLoader.js';
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x111111);
@@ -54,17 +65,17 @@
       (gltf) => {
         const model = gltf.scene;
 
-        // Center the model
+        // Center model
         const box = new THREE.Box3().setFromObject(model);
         const center = box.getCenter(new THREE.Vector3());
-        model.position.sub(center); // Move to origin
-        model.position.y = 0;
+        model.position.sub(center); // center at origin
+        model.position.y = 0;       // put feet at ground-ish
 
         scene.add(model);
         document.getElementById('loading').style.display = 'none';
       },
       (xhr) => {
-        const pct = (xhr.loaded / xhr.total * 100).toFixed(0);
+        const pct = xhr.total ? ((xhr.loaded / xhr.total) * 100).toFixed(0) : '...';
         document.getElementById('loading').textContent = `Loading: ${pct}%`;
       },
       (err) => {
