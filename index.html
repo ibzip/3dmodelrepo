@@ -15,14 +15,57 @@
       background: rgba(0,0,0,0.6);
       padding: 5px 10px;
       border-radius: 4px;
-      z-index: 1;
+      z-index: 2;
+    }
+    #hud {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      color: white;
+      font-family: sans-serif;
+      font-size: 12px;
+      background: rgba(0,0,0,0.6);
+      padding: 6px 10px;
+      border-radius: 4px;
+      z-index: 2;
+      max-width: 280px;
+      line-height: 1.3;
+      display: none; /* hidden until toggled */
+    }
+    #hud button {
+      margin-top: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    #helpBtn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 2;
+      font-size: 12px;
+      font-family: sans-serif;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.3);
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
   <div id="loading">Loading model...</div>
+  <div id="hud">
+    <div><strong>Controls</strong></div>
+    <div>Rotate: drag (1‑finger)</div>
+    <div>Pan: Shift+drag / right‑drag / 2‑finger drag</div>
+    <div>Zoom: scroll / pinch</div>
+    <div>Keys: WASD / arrows pan, R reset</div>
+    <button id="resetBtn">Reset View</button>
+  </div>
+  <button id="helpBtn">?</button>
 
-  <!-- Import map: tells browser where 'three' and addon paths live -->
+  <!-- Import map so addon modules resolve "three" -->
   <script type="importmap">
   {
     "imports": {
@@ -37,10 +80,16 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+    /* ---------- Scene setup ---------- */
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x111111);
 
-    const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(
+      45,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      1000
+    );
     camera.position.set(0, 1.5, 3);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -48,10 +97,26 @@
     renderer.setPixelRatio(window.devicePixelRatio);
     document.body.appendChild(renderer.domElement);
 
+    /* ---------- Controls ---------- */
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 1, 0);
-    controls.update();
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
 
+    // Allow panning (move up/down/left/right)
+    controls.enablePan = true;
+    // Pan in screen space: vertical drag moves up/down instead of orbit tilt (good for product/char views)
+    controls.screenSpacePanning = true;
+
+    // Zoom limits (tune to taste)
+    controls.minDistance = 0.5;
+    controls.maxDistance = 10;
+
+    // Vertical orbit limit off (full rotation) – comment these if you want clamping
+    controls.minPolarAngle = 0;           // allow under/over tilt
+    controls.maxPolarAngle = Math.PI;     // full hemisphere
+
+    /* ---------- Lighting ---------- */
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambient);
 
@@ -59,39 +124,114 @@
     dirLight.position.set(5, 10, 2);
     scene.add(dirLight);
 
+    /* ---------- Load model ---------- */
     const loader = new GLTFLoader();
+    let model;
+    let modelRadius = 1; // fallback until computed
+    const loadingEl = document.getElementById('loading');
+
     loader.load(
       'character.glb',
       (gltf) => {
-        const model = gltf.scene;
+        model = gltf.scene;
 
-        // Center model
+        // Compute bounds
         const box = new THREE.Box3().setFromObject(model);
         const center = box.getCenter(new THREE.Vector3());
-        model.position.sub(center); // center at origin
-        model.position.y = 0;       // put feet at ground-ish
+        const size = box.getSize(new THREE.Vector3());
+        modelRadius = Math.max(size.x, size.y, size.z) * 0.5;
+
+        // Center at origin & rest on ground
+        model.position.sub(center);
+        model.position.y -= box.min.y; // lift so lowest point at y=0
 
         scene.add(model);
-        document.getElementById('loading').style.display = 'none';
+        loadingEl.style.display = 'none';
+
+        // Reframe camera based on size
+        frameModel(modelRadius);
       },
       (xhr) => {
         const pct = xhr.total ? ((xhr.loaded / xhr.total) * 100).toFixed(0) : '...';
-        document.getElementById('loading').textContent = `Loading: ${pct}%`;
+        loadingEl.textContent = `Loading: ${pct}%`;
       },
       (err) => {
         console.error('Model load error:', err);
-        document.getElementById('loading').textContent = 'Error loading model.';
+        loadingEl.textContent = 'Error loading model.';
       }
     );
 
+    /* ---------- Camera framing ---------- */
+    function frameModel(radius) {
+      // Position camera so model fits comfortably
+      const fov = camera.fov * (Math.PI / 180);
+      const fitDist = radius / Math.sin(fov / 2);
+      camera.position.set(0, radius * 0.8, fitDist * 1.1);
+      controls.target.set(0, radius * 0.8, 0);
+      controls.update();
+    }
+
+    /* ---------- Resize ---------- */
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
+    /* ---------- Keyboard panning ---------- */
+    const panStepBase = 0.05; // base fraction of model size
+    window.addEventListener('keydown', (e) => {
+      if (!controls) return;
+      let dx = 0, dy = 0;
+      switch (e.key.toLowerCase()) {
+        case 'arrowleft':
+        case 'a': dx = -1; break;
+        case 'arrowright':
+        case 'd': dx = 1; break;
+        case 'arrowup':
+        case 'w': dy = 1; break;
+        case 'arrowdown':
+        case 's': dy = -1; break;
+        case 'r': resetView(); return;
+        default: return;
+      }
+      panCamera(dx, dy);
+    });
+
+    function panCamera(dx, dy) {
+      // Move controls.target & camera in screen space
+      const step = modelRadius * panStepBase;
+      // Build right & up vectors in world space from camera
+      const vRight = new THREE.Vector3();
+      const vUp = new THREE.Vector3();
+      camera.getWorldDirection(vRight);          // forward
+      vRight.cross(camera.up).normalize();       // right
+      vUp.copy(camera.up).normalize();           // up
+      const pan = new THREE.Vector3()
+        .addScaledVector(vRight, dx * step)
+        .addScaledVector(vUp, dy * step);
+      camera.position.add(pan);
+      controls.target.add(pan);
+      controls.update();
+    }
+
+    /* ---------- Reset view ---------- */
+    function resetView() {
+      frameModel(modelRadius);
+    }
+    document.getElementById('resetBtn').addEventListener('click', resetView);
+
+    /* ---------- HUD toggle ---------- */
+    const hudEl = document.getElementById('hud');
+    const helpBtn = document.getElementById('helpBtn');
+    helpBtn.addEventListener('click', () => {
+      hudEl.style.display = hudEl.style.display === 'none' ? 'block' : 'none';
+    });
+
+    /* ---------- Render loop ---------- */
     function animate() {
       requestAnimationFrame(animate);
+      controls.update(); // for damping
       renderer.render(scene, camera);
     }
     animate();
