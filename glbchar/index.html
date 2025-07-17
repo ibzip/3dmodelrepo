@@ -41,12 +41,11 @@
     controls.target.set(0, 1, 0);
     controls.update();
 
-    // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambientLight);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambient);
 
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    dirLight.position.set(3, 5, 2);
+    dirLight.position.set(5, 10, 2);
     scene.add(dirLight);
 
     const loader = new GLTFLoader();
@@ -54,32 +53,32 @@
       'character.glb',
       (gltf) => {
         const model = gltf.scene;
-        // Center model based on bounding box
+
+        // Center the model
         const box = new THREE.Box3().setFromObject(model);
         const center = box.getCenter(new THREE.Vector3());
-        model.position.sub(center); // center at origin
+        model.position.sub(center); // Move to origin
         model.position.y = 0;
 
         scene.add(model);
         document.getElementById('loading').style.display = 'none';
       },
       (xhr) => {
-        const percent = xhr.loaded / xhr.total * 100;
-        document.getElementById('loading').textContent = `Loading: ${percent.toFixed(0)}%`;
+        const pct = (xhr.loaded / xhr.total * 100).toFixed(0);
+        document.getElementById('loading').textContent = `Loading: ${pct}%`;
       },
-      (error) => {
-        console.error('GLTF load error:', error);
-        document.getElementById('loading').textContent = 'Failed to load model.';
+      (err) => {
+        console.error('Model load error:', err);
+        document.getElementById('loading').textContent = 'Error loading model.';
       }
     );
 
     window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    const clock = new THREE.Clock();
     function animate() {
       requestAnimationFrame(animate);
       renderer.render(scene, camera);
